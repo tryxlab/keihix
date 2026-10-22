@@ -58,10 +58,11 @@ OSの **「共有メニュー（Share Target: `ACTION_SEND`）」** と連携す
 
 ## ドキュメント一覧
 
+* 📖 [利用ガイド (user_guide.md)](Docs/user_guide.md) - 初めての方向けの初期設定・日常の使い方・FAQ
 * 📄 [全体仕様書 (original_spec.md)](Docs/original_spec.md) - システム要件・データスキーマ・電帳法設計
 * 📋 [実装計画書 (implementation_plan.md)](Docs/implementation_plan.md) - フェーズ別の開発ロードマップ
 * 📝 [開発・執筆ガイドライン (GEMINI.md)](GEMINI.md) - プロジェクト開発方針・トーン＆マナー
-* 📖 [開発日記 (note連載ドラフト)](.meta/articles/) - 開発プロセスや試行錯誤を記録した開発日誌
+* 📚 [開発日記 (note連載ドラフト)](.meta/articles/) - 開発プロセスや試行錯誤を記録した開発日誌
 
 ---
 
