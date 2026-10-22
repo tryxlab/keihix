@@ -170,6 +170,10 @@ Gemini 1.5 Flash の Structured Outputs（JSON Schema）にこの構造を定義
 
 開発を進めながら、うまくいったこともハマったこともリアルタイムで残していこうと思います。
 
+開発中のコードやドキュメントは、以下のGitHubリポジトリでオープンソースとして公開しながら進めています。
+
+* **GitHub:** [https://github.com/tryxlab/keihix](https://github.com/tryxlab/keihix)
+
 ---
 
 ## （参考）今後の開発ログ予定（構想メモ）
