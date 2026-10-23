@@ -40,14 +40,32 @@
 * フィンテックらしい信頼感を持たせるため、深いネイビーブラック（`#0D1117`）を基調に、エメラルドグリーン（`#2EA043`）とティール（`#58A6FF`）をアクセントカラーに採用。
 * note記事で読者の目を惹くため、Material 3に準拠したスマホ画面モックアップ画像（免責画面・BYOK設定画面）を作成し、`Docs/images/` に保存。
 
+#### ④ Android Studio すらいらない！？ 超軽量 CLI による実機直結ビルドの衝撃
+* **「Android開発＝数GBの重厚な Android Studio が必須」という固定観念の打破:**
+  * 通常のチュートリアルでは「まず Android Studio をダウンロードして数十分待つ」のが定番だが、実はコアである **Gradle** と **JDK 17**、そして最小限の **Android Command-line Tools (adb)** さえあれば、ターミナルから実機ビルド・転送・スクショ保存まで全自動で完結する。
+  * 実際に `Microsoft.OpenJDK.17` ＋ `Google.PlatformTools` ＋ `cmdline-tools` (SDK 35) のみで、`./gradlew.bat assembleDebug` を実行し、**わずか 17秒 で本番用 debug APK（23.5MB）の生成に成功！**
+  * 重たい IDE を立ち上げずに CLI だけで完結するため、PC 動作も極めて軽快。
+* **note記事としてのバリュー:**
+  * 「環境構築で挫折する人」や「PCのディスク容量を食われたくない個人開発者」にとって、この『超軽量 CLI 実機ビルドハック』は最高に実用的で面白いトピックになる。
+
+
+
 ---
 
-### 3. 生成・保存したビジュアル素材
-- [Docs/images/ui_disclaimer.jpg](file:///d:/userdata/documents/dev/keihix/Docs/images/ui_disclaimer.jpg)（免責事項・電帳法同意画面）
-- [Docs/images/ui_settings_byok.jpg](file:///d:/userdata/documents/dev/keihix/Docs/images/ui_settings_byok.jpg)（BYOK APIキー設定・Google Drive連携画面）
+### 3. 生成・保存したビジュアル素材（実機キャプチャ）
+- [Docs/images/real_pixel9a_disclaimer.png](file:///d:/userdata/documents/dev/keihix/Docs/images/real_pixel9a_disclaimer.png)（実機 Pixel 9a で動作する初回免責事項画面）
+- [Docs/images/real_pixel9a_settings.png](file:///d:/userdata/documents/dev/keihix/Docs/images/real_pixel9a_settings.png)（実機 Pixel 9a で動作する設定・BYOK管理画面）
+- [Docs/images/ui_disclaimer.jpg](file:///d:/userdata/documents/dev/keihix/Docs/images/ui_disclaimer.jpg)（初期UIモックアップ）
+- [Docs/images/ui_settings_byok.jpg](file:///d:/userdata/documents/dev/keihix/Docs/images/ui_settings_byok.jpg)（初期UIモックアップ）
 
 ---
 
-### 4. 次のステップ
-- **Phase 2:** Credential Manager による Google アカウント認証 & Google Drive フォルダ自動生成・`transaction_log.csv` 追記マネージャーの実装
-- **note第2回の執筆:** 本ログを元に「電帳法＆免責編」のドラフトを作成
+### 4. 今回の実機検証で得られた note 記事のコア・ハイライト
+1. **「Android Studio 不要」の衝撃:**
+   * 重厚な IDE を使わず、JDK 17 + Android SDK 35 + adb だけで 15秒 ビルド＆実機転送を達成。
+2. **免責同意によるブロックゲートが実機で完璧に機能:**
+   * 3つのチェックボックスを全て ON にしないと「同意してはじめる」ボタンが押せないガードが実機で動作。
+   * 同意完了後に Preference が更新され、設定・BYOK画面へのスムーズな画面遷移を確認。
+3. **実機インセット対応のリアル:**
+   * Pixel 9a のカメラホール・時計との被りを `statusBarsPadding()` で解消したリアルなチューニング過程。
+
