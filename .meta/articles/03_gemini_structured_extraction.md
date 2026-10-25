@@ -230,7 +230,7 @@ HTTP 404: Model is not found: models/gemini-1.5-flash for api version v1beta
 
 今回は、KeihiXのコア機能である **Gemini による領収書・売上明細の構造化抽出ロジック** の実装と、実APIキー・実領収書PDFによる定量ベンチマーク（実測 3.03秒）の検証を行いました。
 
-* **今回のプルリクエスト (#◯):** [feature/gemini-structured-extraction](https://github.com/tryxlab/keihix/tree/feature/gemini-structured-extraction)
+* **今回のプルリクエスト (#1):** [PR #1: feat: Gemini 構造化抽出 (Structured Outputs) と領収書・売上パース画面の実装](https://github.com/tryxlab/keihix/pull/1)
 
 次回（#4）は、抽出・確認したデータをユーザー自身のGoogle Driveへ自動保存し、`transaction_log.csv` へ追記する **「Google Drive 直結・サーバーレス台帳化」** の実装に進む予定です。
 
