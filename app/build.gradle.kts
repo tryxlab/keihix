@@ -88,5 +88,8 @@ dependencies {
     implementation(libs.google.genai)
     implementation(libs.kotlinx.serialization.json)
 
+    // Testing
+    testImplementation(libs.junit)
+
     debugImplementation(libs.androidx.ui.tooling)
 }
