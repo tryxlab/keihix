@@ -10,6 +10,8 @@ import androidx.navigation.compose.composable
 import com.keihix.app.KeihiXApplication
 import com.keihix.app.ui.screens.disclaimer.DisclaimerScreen
 import com.keihix.app.ui.screens.disclaimer.DisclaimerViewModel
+import com.keihix.app.ui.screens.extraction.ExtractionScreen
+import com.keihix.app.ui.screens.extraction.ExtractionViewModel
 import com.keihix.app.ui.screens.settings.SettingsScreen
 import com.keihix.app.ui.screens.settings.SettingsViewModel
 
@@ -25,7 +27,14 @@ fun KeihiXNavHost(
     app: KeihiXApplication
 ) {
     val hasAgreedDisclaimer by app.preferencesRepository.hasAgreedDisclaimer.collectAsState()
-    val startDestination = if (hasAgreedDisclaimer) Screen.Settings.route else Screen.Disclaimer.route
+    val hasApiKey = app.secureKeyManager.hasApiKey()
+
+    // 免責未同意ならDisclaimer、同意済みでAPIキー未設定ならSettings、設定済みならHome
+    val startDestination = when {
+        !hasAgreedDisclaimer -> Screen.Disclaimer.route
+        !hasApiKey -> Screen.Settings.route
+        else -> Screen.Home.route
+    }
 
     NavHost(
         navController = navController,
@@ -36,9 +45,20 @@ fun KeihiXNavHost(
             DisclaimerScreen(
                 viewModel = disclaimerViewModel,
                 onProceed = {
-                    navController.navigate(Screen.Settings.route) {
+                    val nextScreen = if (app.secureKeyManager.hasApiKey()) Screen.Home.route else Screen.Settings.route
+                    navController.navigate(nextScreen) {
                         popUpTo(Screen.Disclaimer.route) { inclusive = true }
                     }
+                }
+            )
+        }
+
+        composable(Screen.Home.route) {
+            val extractionViewModel = ExtractionViewModel(app.transactionParser)
+            ExtractionScreen(
+                viewModel = extractionViewModel,
+                onNavigateToSettings = {
+                    navController.navigate(Screen.Settings.route)
                 }
             )
         }
@@ -48,7 +68,13 @@ fun KeihiXNavHost(
             SettingsScreen(
                 viewModel = settingsViewModel,
                 onNavigateBack = {
-                    // ナビゲーション戻り処理
+                    if (navController.previousBackStackEntry != null) {
+                        navController.popBackStack()
+                    } else {
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(Screen.Settings.route) { inclusive = true }
+                        }
+                    }
                 }
             )
         }
