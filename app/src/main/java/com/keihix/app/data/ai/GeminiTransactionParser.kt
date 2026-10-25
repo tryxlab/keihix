@@ -77,7 +77,7 @@ class GeminiTransactionParser(
 
         try {
             val generativeModel = GenerativeModel(
-                modelName = "gemini-1.5-flash",
+                modelName = "gemini-3.1-flash-lite",
                 apiKey = apiKey,
                 generationConfig = generationConfig {
                     responseMimeType = "application/json"
@@ -127,7 +127,7 @@ class GeminiTransactionParser(
 
         try {
             val generativeModel = GenerativeModel(
-                modelName = "gemini-1.5-flash",
+                modelName = "gemini-3.1-flash-lite",
                 apiKey = apiKey,
                 generationConfig = generationConfig {
                     responseMimeType = "application/json"
