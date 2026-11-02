@@ -3,10 +3,10 @@ package com.keihix.app.ui.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.keihix.app.KeihiXApplication
 import com.keihix.app.ui.screens.disclaimer.DisclaimerScreen
 import com.keihix.app.ui.screens.disclaimer.DisclaimerViewModel
@@ -23,16 +23,17 @@ sealed class Screen(val route: String) {
 
 @Composable
 fun KeihiXNavHost(
-    navController: NavHostController,
-    app: KeihiXApplication
+    navController: NavHostController = rememberNavController(),
+    app: KeihiXApplication = KeihiXApplication.instance
 ) {
     val hasAgreedDisclaimer by app.preferencesRepository.hasAgreedDisclaimer.collectAsState()
-    val hasApiKey = app.secureKeyManager.hasApiKey()
 
-    // 免責未同意ならDisclaimer、同意済みでAPIキー未設定ならSettings、設定済みならHome
+    // 起動時の初期遷移先判定:
+    // 免責未同意なら Disclaimer 画面へ。
+    // 同意済みでAPIキー未設定なら Settings 画面、APIキー設定済みなら Home (抽出) 画面へ。
     val startDestination = when {
         !hasAgreedDisclaimer -> Screen.Disclaimer.route
-        !hasApiKey -> Screen.Settings.route
+        !app.secureKeyManager.hasApiKey() -> Screen.Settings.route
         else -> Screen.Home.route
     }
 
@@ -54,7 +55,11 @@ fun KeihiXNavHost(
         }
 
         composable(Screen.Home.route) {
-            val extractionViewModel = ExtractionViewModel(app.transactionParser)
+            val extractionViewModel = ExtractionViewModel(
+                parser = app.transactionParser,
+                driveRepository = app.driveStorageRepository,
+                preferencesRepository = app.preferencesRepository
+            )
             ExtractionScreen(
                 viewModel = extractionViewModel,
                 onNavigateToSettings = {
@@ -64,7 +69,11 @@ fun KeihiXNavHost(
         }
 
         composable(Screen.Settings.route) {
-            val settingsViewModel = SettingsViewModel(app.secureKeyManager, app.preferencesRepository)
+            val settingsViewModel = SettingsViewModel(
+                secureKeyManager = app.secureKeyManager,
+                preferencesRepository = app.preferencesRepository,
+                googleAuthManager = app.googleAuthManager
+            )
             SettingsScreen(
                 viewModel = settingsViewModel,
                 onNavigateBack = {

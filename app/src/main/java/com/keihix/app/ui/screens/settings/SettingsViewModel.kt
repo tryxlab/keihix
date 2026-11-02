@@ -2,6 +2,8 @@ package com.keihix.app.ui.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.keihix.app.data.drive.GoogleAuthManager
+import com.keihix.app.data.drive.GoogleAuthStatus
 import com.keihix.app.data.preference.UserPreferencesRepository
 import com.keihix.app.data.security.SecureKeyManager
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,14 +25,15 @@ data class SettingsUiState(
     val hasApiKey: Boolean = false,
     val testStatus: ApiKeyTestStatus = ApiKeyTestStatus.Idle,
     val isPasswordVisible: Boolean = false,
-    val connectedAccountEmail: String? = null,
+    val googleAuthStatus: GoogleAuthStatus = GoogleAuthStatus.NotConnected,
     val targetYear: Int = 2026,
     val showKiteiDialog: Boolean = false
 )
 
 class SettingsViewModel(
     private val secureKeyManager: SecureKeyManager,
-    private val preferencesRepository: UserPreferencesRepository
+    private val preferencesRepository: UserPreferencesRepository,
+    private val googleAuthManager: GoogleAuthManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -38,6 +41,12 @@ class SettingsViewModel(
 
     init {
         refreshState()
+        // GoogleAuthManager の状態を監視
+        viewModelScope.launch {
+            googleAuthManager.authStatus.collect { authStatus ->
+                _uiState.update { it.copy(googleAuthStatus = authStatus) }
+            }
+        }
     }
 
     fun refreshState() {
@@ -48,7 +57,8 @@ class SettingsViewModel(
                 hasApiKey = hasKey,
                 maskedApiKey = masked,
                 currentApiKeyInput = if (hasKey) "" else it.currentApiKeyInput,
-                targetYear = preferencesRepository.targetYear.value
+                targetYear = preferencesRepository.targetYear.value,
+                googleAuthStatus = googleAuthManager.authStatus.value
             )
         }
     }
@@ -110,6 +120,16 @@ class SettingsViewModel(
             )
         }
     }
+
+    fun onGoogleAccountSelected(accountName: String) {
+        googleAuthManager.setSelectedAccountName(accountName)
+    }
+
+    fun signOutGoogle() {
+        googleAuthManager.signOut()
+    }
+
+    fun getGoogleSignInIntent() = googleAuthManager.createSignInIntent()
 
     fun showKiteiDialog() {
         _uiState.update { it.copy(showKiteiDialog = true) }
