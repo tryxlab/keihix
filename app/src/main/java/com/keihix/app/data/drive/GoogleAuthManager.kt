@@ -3,8 +3,8 @@ package com.keihix.app.data.drive
 import android.accounts.Account
 import android.content.Context
 import android.content.Intent
-import com.google.api.client.extensions.android.http.AndroidHttp
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
+import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
@@ -51,7 +51,7 @@ class GoogleAuthManager(
         try {
             credential.selectedAccountName = accountName
             driveService = Drive.Builder(
-                AndroidHttp.newCompatibleTransport(),
+                NetHttpTransport(),
                 GsonFactory.getDefaultInstance(),
                 credential
             ).setApplicationName("KeihiX").build()

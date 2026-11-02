@@ -125,7 +125,7 @@ class ExtractionViewModel(
             val result = if (isPdf) {
                 val bytes = readBytesFromUri(context, uri)
                 if (bytes != null) {
-                    parser.parseReceiptPdf(bytes)
+                    parser.parseDocument(bytes, mimeType)
                 } else {
                     ParseResult.Error("PDFファイルの読み込みに失敗しました")
                 }
@@ -146,7 +146,7 @@ class ExtractionViewModel(
     private fun handleParseResult(result: ParseResult) {
         when (result) {
             is ParseResult.Success -> {
-                val data = result.data
+                val data = result.transaction
                 _uiState.update {
                     it.copy(
                         isLoading = false,

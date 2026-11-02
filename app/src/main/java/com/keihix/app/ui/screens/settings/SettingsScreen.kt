@@ -65,7 +65,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.keihix.app.data.drive.GoogleAuthStatus
-import com.keihix.app.ui.screens.disclaimer.KiteiDialog
+import com.keihix.app.ui.screens.disclaimer.KiteiPreviewDialog
 import com.keihix.app.ui.theme.DarkBackground
 import com.keihix.app.ui.theme.DarkBorder
 import com.keihix.app.ui.theme.DarkSurface
@@ -504,7 +504,7 @@ fun SettingsScreen(
         }
 
         if (uiState.showKiteiDialog) {
-            KiteiDialog(onDismiss = { viewModel.hideKiteiDialog() })
+            KiteiPreviewDialog(onDismiss = { viewModel.hideKiteiDialog() })
         }
     }
 }
