@@ -304,7 +304,7 @@ class ExtractionViewModel(
                 withholdingTax = "",
                 invoiceNumber = "T1234567890123",
                 memo = "USB-C ハブ 10Gbps対応",
-                confidenceNote = "デモデータ: Gemini 1.5 Flash 抽出シミュレーション"
+                confidenceNote = "デモデータ: Gemini 抽出シミュレーション"
             )
         }
     }

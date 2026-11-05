@@ -30,12 +30,8 @@ fun KeihiXNavHost(
 
     // 起動時の初期遷移先判定:
     // 免責未同意なら Disclaimer 画面へ。
-    // 同意済みでAPIキー未設定なら Settings 画面、APIキー設定済みなら Home (抽出) 画面へ。
-    val startDestination = when {
-        !hasAgreedDisclaimer -> Screen.Disclaimer.route
-        !app.secureKeyManager.hasApiKey() -> Screen.Settings.route
-        else -> Screen.Home.route
-    }
+    // 同意済みなら Home (抽出) 画面へ（APIキー未設定でもデモや設定確認が可能）。
+    val startDestination = if (!hasAgreedDisclaimer) Screen.Disclaimer.route else Screen.Home.route
 
     NavHost(
         navController = navController,
@@ -46,8 +42,7 @@ fun KeihiXNavHost(
             DisclaimerScreen(
                 viewModel = disclaimerViewModel,
                 onProceed = {
-                    val nextScreen = if (app.secureKeyManager.hasApiKey()) Screen.Home.route else Screen.Settings.route
-                    navController.navigate(nextScreen) {
+                    navController.navigate(Screen.Home.route) {
                         popUpTo(Screen.Disclaimer.route) { inclusive = true }
                     }
                 }
@@ -81,7 +76,7 @@ fun KeihiXNavHost(
                         navController.popBackStack()
                     } else {
                         navController.navigate(Screen.Home.route) {
-                            popUpTo(Screen.Settings.route) { inclusive = true }
+                            popUpTo(Screen.Home.route) { inclusive = true }
                         }
                     }
                 }

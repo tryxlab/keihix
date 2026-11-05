@@ -2,6 +2,7 @@ package com.keihix.app.ui.screens.settings
 
 import android.accounts.AccountManager
 import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -89,6 +90,11 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val focusManager = LocalFocusManager.current
+
+    // Android システムの「戻る」ジェスチャー / キーにも対応
+    BackHandler {
+        onNavigateBack()
+    }
 
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -263,7 +269,7 @@ fun SettingsScreen(
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Text(
-                                    text = "Gemini 1.5 Flash",
+                                    text = "Gemini 3.1 Flash-Lite",
                                     color = PrimaryEmeraldLight,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold

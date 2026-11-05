@@ -1,10 +1,13 @@
 package com.keihix.app.ui.screens.extraction
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -37,6 +40,18 @@ fun ExtractionScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+
+    // カメラ撮影用のテンポラリ Uri
+    var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
+
+    // カメラ撮影ランチャー
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success: Boolean ->
+        if (success && tempCameraUri != null) {
+            viewModel.processUri(context, tempCameraUri!!)
+        }
+    }
 
     // 画像ピッカー（フォトピッカー）
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -99,10 +114,29 @@ fun ExtractionScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
+                    // 上段: 実機取り込み（カメラ・アルバム）
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Button(
+                            onClick = {
+                                val tempFile = File.createTempFile("keihix_receipt_", ".jpg", context.cacheDir).apply {
+                                    createNewFile()
+                                    deleteOnExit()
+                                }
+                                val authority = "${context.packageName}.fileprovider"
+                                val uri = FileProvider.getUriForFile(context, authority, tempFile)
+                                tempCameraUri = uri
+                                takePictureLauncher.launch(uri)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("カメラで撮影", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+
                         Button(
                             onClick = {
                                 photoPickerLauncher.launch(
@@ -113,25 +147,33 @@ fun ExtractionScreen(
                         ) {
                             Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("画像を選択", fontSize = 13.sp)
+                            Text("画像を選択", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
+                    }
 
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // 下段: デモ投入
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         OutlinedButton(
                             onClick = { viewModel.loadExpenseDemo() },
                             modifier = Modifier.weight(1f)
                         ) {
-                            Icon(Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("経費デモ", fontSize = 13.sp)
+                            Text("経費デモ", fontSize = 12.sp)
                         }
 
                         OutlinedButton(
                             onClick = { viewModel.loadIncomeDemo() },
                             modifier = Modifier.weight(1f)
                         ) {
-                            Icon(Icons.Default.AttachMoney, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.AttachMoney, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("収入デモ", fontSize = 13.sp)
+                            Text("収入デモ", fontSize = 12.sp)
                         }
                     }
                 }
@@ -171,7 +213,7 @@ fun ExtractionScreen(
                         CircularProgressIndicator(modifier = Modifier.size(24.dp))
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Gemini 1.5 Flash で構造化データを抽出中...",
+                            text = "Gemini で構造化データを抽出中...",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium
                         )
