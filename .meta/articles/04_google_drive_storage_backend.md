@@ -192,7 +192,7 @@ override suspend fun saveTransaction(
 
 ユーザーは内容を確認・微修正した上で、最下部の **「Google Drive に保存する」** ボタンを 1 タップするだけで、裏側の Read-Modify-Write とファイルアップロードを実行できます。
 
-![KeihiX 実機での領収書パース結果と電帳法プレビュー・保存ボタン](./04_extraction_drive_save_preview.png)
+![KeihiX 実機での領収書パース結果と電帳法プレビュー・保存ボタン](../../Docs/images/ui_recipt.png)
 *▲ 実機での動作確認画面。撮影した領収書から Gemini 3.1 Flash-Lite が「日付・金額・店舗名・科目・インボイス番号」を即座に抽出し、最下部に電帳法準拠のファイル名プレビュー（`20261004_6507_業務スーパー佐賀北店.pdf`）と Google Drive 保存ボタンが表示されている様子*
 
 ---
