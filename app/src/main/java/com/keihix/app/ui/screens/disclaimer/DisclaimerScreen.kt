@@ -291,7 +291,7 @@ private fun CheckboxRow(
 }
 
 @Composable
-private fun KiteiPreviewDialog(onDismiss: () -> Unit) {
+fun KiteiPreviewDialog(onDismiss: () -> Unit) {
     val kiteiText = """
         【電子取引データの訂正及び削除の防止に関する事務処理規程（抜粋）】
         

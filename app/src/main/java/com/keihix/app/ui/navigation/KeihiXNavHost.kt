@@ -3,10 +3,10 @@ package com.keihix.app.ui.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.keihix.app.KeihiXApplication
 import com.keihix.app.ui.screens.disclaimer.DisclaimerScreen
 import com.keihix.app.ui.screens.disclaimer.DisclaimerViewModel
@@ -23,18 +23,15 @@ sealed class Screen(val route: String) {
 
 @Composable
 fun KeihiXNavHost(
-    navController: NavHostController,
-    app: KeihiXApplication
+    navController: NavHostController = rememberNavController(),
+    app: KeihiXApplication = KeihiXApplication.instance
 ) {
     val hasAgreedDisclaimer by app.preferencesRepository.hasAgreedDisclaimer.collectAsState()
-    val hasApiKey = app.secureKeyManager.hasApiKey()
 
-    // 免責未同意ならDisclaimer、同意済みでAPIキー未設定ならSettings、設定済みならHome
-    val startDestination = when {
-        !hasAgreedDisclaimer -> Screen.Disclaimer.route
-        !hasApiKey -> Screen.Settings.route
-        else -> Screen.Home.route
-    }
+    // 起動時の初期遷移先判定:
+    // 免責未同意なら Disclaimer 画面へ。
+    // 同意済みなら Home (抽出) 画面へ（APIキー未設定でもデモや設定確認が可能）。
+    val startDestination = if (!hasAgreedDisclaimer) Screen.Disclaimer.route else Screen.Home.route
 
     NavHost(
         navController = navController,
@@ -45,8 +42,7 @@ fun KeihiXNavHost(
             DisclaimerScreen(
                 viewModel = disclaimerViewModel,
                 onProceed = {
-                    val nextScreen = if (app.secureKeyManager.hasApiKey()) Screen.Home.route else Screen.Settings.route
-                    navController.navigate(nextScreen) {
+                    navController.navigate(Screen.Home.route) {
                         popUpTo(Screen.Disclaimer.route) { inclusive = true }
                     }
                 }
@@ -54,7 +50,11 @@ fun KeihiXNavHost(
         }
 
         composable(Screen.Home.route) {
-            val extractionViewModel = ExtractionViewModel(app.transactionParser)
+            val extractionViewModel = ExtractionViewModel(
+                parser = app.transactionParser,
+                driveRepository = app.driveStorageRepository,
+                preferencesRepository = app.preferencesRepository
+            )
             ExtractionScreen(
                 viewModel = extractionViewModel,
                 onNavigateToSettings = {
@@ -64,7 +64,11 @@ fun KeihiXNavHost(
         }
 
         composable(Screen.Settings.route) {
-            val settingsViewModel = SettingsViewModel(app.secureKeyManager, app.preferencesRepository)
+            val settingsViewModel = SettingsViewModel(
+                secureKeyManager = app.secureKeyManager,
+                preferencesRepository = app.preferencesRepository,
+                googleAuthManager = app.googleAuthManager
+            )
             SettingsScreen(
                 viewModel = settingsViewModel,
                 onNavigateBack = {
@@ -72,7 +76,7 @@ fun KeihiXNavHost(
                         navController.popBackStack()
                     } else {
                         navController.navigate(Screen.Home.route) {
-                            popUpTo(Screen.Settings.route) { inclusive = true }
+                            popUpTo(Screen.Home.route) { inclusive = true }
                         }
                     }
                 }

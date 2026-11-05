@@ -84,7 +84,7 @@ class SecureKeyManager(context: Context) {
 
     /**
      * Gemini APIに対する実際の接続テスト（疎通確認）。
-     * 軽量なモデル一覧取得 (models/gemini-1.5-flash) を行い、HTTP 200が返るか検証する。
+     * アプリで実際に使用するモデル (models/gemini-3.1-flash-lite) の取得を行い、HTTP 200が返るか検証する。
      */
     suspend fun testConnection(apiKey: String): ConnectionTestResult = withContext(Dispatchers.IO) {
         val trimmedKey = apiKey.trim()
@@ -93,7 +93,7 @@ class SecureKeyManager(context: Context) {
         }
 
         try {
-            val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash?key=$trimmedKey")
+            val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite?key=$trimmedKey")
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 8000
