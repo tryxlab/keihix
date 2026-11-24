@@ -27,6 +27,9 @@ class GoogleAuthManager(
     private val _authStatus = MutableStateFlow<GoogleAuthStatus>(GoogleAuthStatus.NotConnected)
     val authStatus: StateFlow<GoogleAuthStatus> = _authStatus.asStateFlow()
 
+    private val _consentRequiredIntent = MutableStateFlow<Intent?>(null)
+    val consentRequiredIntent: StateFlow<Intent?> = _consentRequiredIntent.asStateFlow()
+
     private var driveService: Drive? = null
 
     init {
@@ -77,6 +80,18 @@ class GoogleAuthManager(
      * 認可済み Drive サービスインスタンスを取得
      */
     fun getDriveService(): Drive? = driveService
+
+    /**
+     * 初回 Drive API 呼び出し時に UserRecoverableAuthIOException (NEED_REMOTE_CONSENT) が
+     * 発生した際、ユーザーに Google OAuth 同意画面を表示するための Intent を通知する。
+     */
+    fun notifyConsentRequired(intent: Intent) {
+        _consentRequiredIntent.value = intent
+    }
+
+    fun consumeConsentIntent() {
+        _consentRequiredIntent.value = null
+    }
 
     /**
      * 連携済みかどうか

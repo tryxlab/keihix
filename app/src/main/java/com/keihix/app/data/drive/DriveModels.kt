@@ -10,7 +10,18 @@ data class DriveFolderHierarchy(
     val rootFolderId: String,
     val receiptsFolderId: String,
     val incomesFolderId: String,
+    val pendingFolderId: String? = null,
     val csvFileId: String? = null
+)
+
+/**
+ * Drive の pending フォルダに一時退避された未解析ファイル
+ */
+data class PendingDriveFile(
+    val fileId: String,
+    val name: String,
+    val mimeType: String,
+    val createdTimeMillis: Long? = null
 )
 
 /**

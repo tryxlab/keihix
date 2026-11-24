@@ -3,10 +3,10 @@ package com.keihix.app
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.os.Parcelable
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.content.IntentCompat
 import androidx.navigation.compose.rememberNavController
 import com.keihix.app.ui.navigation.KeihiXNavHost
 import com.keihix.app.ui.theme.KeihiXTheme
@@ -20,7 +20,7 @@ class MainActivity : ComponentActivity() {
         val app = application as KeihiXApplication
 
         // 共有インテント (ACTION_SEND) の受信確認
-        handleIncomingIntent(intent)
+        handleIncomingIntent(intent, app)
 
         setContent {
             KeihiXTheme {
@@ -35,16 +35,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleIncomingIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent, application as KeihiXApplication)
     }
 
-    private fun handleIncomingIntent(intent: Intent?) {
+    private fun handleIncomingIntent(intent: Intent?, app: KeihiXApplication) {
         if (intent == null) return
         if (intent.action == Intent.ACTION_SEND) {
-            val uri = (intent.getParcelableExtra<Parcelable>(Intent.EXTRA_STREAM) as? Uri)
-                ?: intent.clipData?.getItemAt(0)?.uri
+            val uri = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
             if (uri != null) {
-                // Phase 3で実装する画像・PDF解析パイプラインへの受け渡し先
+                app.submitSharedUri(uri)
+                // 再構成時の重複処理を防ぐため action をクリア
+                intent.action = null
             }
         }
     }
