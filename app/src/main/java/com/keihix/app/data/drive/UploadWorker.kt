@@ -61,8 +61,17 @@ class UploadWorker(
         ) {
             is DriveSaveResult.Success -> {
                 file.delete()
-                inputData.getString(KEY_PENDING_FILE_ID)?.let { pendingId ->
-                    app.driveStorageRepository.deletePendingFile(pendingId)
+                val localPendingId = inputData.getString(KEY_LOCAL_PENDING_ID)
+                var drivePendingId = inputData.getString(KEY_PENDING_FILE_ID)
+                if (localPendingId != null) {
+                    val store = PendingReceiptStore(applicationContext)
+                    if (drivePendingId == null) {
+                        drivePendingId = store.getById(localPendingId)?.driveFileId
+                    }
+                    store.deleteLocalPending(localPendingId)
+                }
+                if (drivePendingId != null) {
+                    app.driveStorageRepository.deletePendingFile(drivePendingId)
                 }
                 Result.success(workDataOf(KEY_RESULT_PATH to saveResult.relativeDrivePath))
             }
@@ -98,6 +107,7 @@ class UploadWorker(
         const val KEY_RESULT_PATH = "result_path"
         const val KEY_ERROR_MESSAGE = "error_message"
         const val KEY_PENDING_FILE_ID = "pending_file_id"
+        const val KEY_LOCAL_PENDING_ID = "local_pending_id"
 
         private const val MAX_RETRY_ATTEMPTS = 5
         private const val PENDING_DIR_NAME = "pending_uploads"
@@ -112,7 +122,8 @@ class UploadWorker(
             fileBytes: ByteArray,
             mimeType: String,
             extension: String,
-            pendingDriveFileId: String? = null
+            pendingDriveFileId: String? = null,
+            localPendingId: String? = null
         ): UUID {
             val pendingDir = File(context.filesDir, PENDING_DIR_NAME).apply { mkdirs() }
             val stagedFile = File(pendingDir, "upload_${UUID.randomUUID()}.$extension")
@@ -124,7 +135,8 @@ class UploadWorker(
                 mimeType = mimeType,
                 extension = extension,
                 transaction = transaction,
-                pendingDriveFileId = pendingDriveFileId
+                pendingDriveFileId = pendingDriveFileId,
+                localPendingId = localPendingId
             )
 
             val constraints = Constraints.Builder()
@@ -153,7 +165,8 @@ class UploadWorker(
             mimeType: String,
             extension: String,
             transaction: ParsedTransaction,
-            pendingDriveFileId: String? = null
+            pendingDriveFileId: String? = null,
+            localPendingId: String? = null
         ): Data = Data.Builder()
             .putInt(KEY_YEAR, year)
             .putString(KEY_LOCAL_FILE_PATH, localFilePath)
@@ -171,6 +184,7 @@ class UploadWorker(
                 transaction.memo?.let { putString(KEY_MEMO, it) }
                 transaction.confidenceNote?.let { putString(KEY_CONFIDENCE_NOTE, it) }
                 pendingDriveFileId?.let { putString(KEY_PENDING_FILE_ID, it) }
+                localPendingId?.let { putString(KEY_LOCAL_PENDING_ID, it) }
             }
             .build()
 

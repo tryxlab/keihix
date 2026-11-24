@@ -14,7 +14,10 @@ import androidx.work.WorkManager
 import com.keihix.app.data.ai.GeminiTransactionParser
 import com.keihix.app.data.ai.ParseResult
 import com.keihix.app.data.drive.DriveStorageRepository
+import com.keihix.app.data.drive.LocalPendingItem
+import com.keihix.app.data.drive.PendingBackupWorker
 import com.keihix.app.data.drive.PendingDriveFile
+import com.keihix.app.data.drive.PendingReceiptStore
 import com.keihix.app.data.drive.UploadWorker
 import com.keihix.app.data.model.ParsedTransaction
 import com.keihix.app.data.model.TransactionType
@@ -41,8 +44,10 @@ data class ExtractionUiState(
     val rawJsonOutput: String? = null,
     val pendingUploadCount: Int = 0,
     val uploadStatusMessage: String? = null,
+    val localPendingItems: List<LocalPendingItem> = emptyList(),
     val pendingDriveFiles: List<PendingDriveFile> = emptyList(),
     val isLoadingPendingFiles: Boolean = false,
+    val activeLocalPendingId: String? = null,
     val activePendingDriveFileId: String? = null,
     val activePendingDriveBytes: ByteArray? = null,
     val activePendingDriveMimeType: String? = null,
@@ -218,31 +223,40 @@ class ExtractionViewModel(
     }
 
     /**
-     * Google Drive の pending フォルダ内の未解析ファイル一覧を更新する
+     * 端末内の退避ファイル一覧を即時読み込み、オンラインであれば Drive の pending/ も統合する
      */
-    fun refreshPendingDriveFiles() {
-        val repo = driveRepository ?: return
+    fun refreshPendingFiles(context: Context) {
         val targetYear = preferencesRepository?.targetYear?.value ?: LocalDate.now().year
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingPendingFiles = true) }
-            val result = repo.listPendingFiles(targetYear)
-            _uiState.update { state ->
-                state.copy(
+
+            val localStore = PendingReceiptStore(context)
+            val localItems = localStore.listLocalPending()
+            val syncedDriveIds = localItems.mapNotNull { it.driveFileId }.toSet()
+
+            // まずローカル分を即座にUIへ反映（完全オフラインでも即表示）
+            _uiState.update { it.copy(localPendingItems = localItems) }
+
+            // Drive 連携済み＆オンライン時のみリモート側（他端末退避分など）を取得
+            val remoteItems = driveRepository?.listPendingFiles(targetYear)
+                ?.getOrNull()
+                .orEmpty()
+                .filterNot { it.fileId in syncedDriveIds }
+
+            _uiState.update {
+                it.copy(
                     isLoadingPendingFiles = false,
-                    pendingDriveFiles = result.getOrElse { state.pendingDriveFiles }
+                    pendingDriveFiles = remoteItems
                 )
             }
         }
     }
 
     /**
-     * 解析に失敗した画像・PDFを一旦 Google Drive の pending/ フォルダに退避する（あとで解析用）
+     * 電波不良（オフライン）や Gemini 503 混雑時に、まず端末内の永続領域へ即座に退避し、
+     * バックグラウンドで Google Drive の pending/ フォルダにも自動バックアップ予約する。
      */
-    fun saveCurrentToPendingDrive(context: Context) {
-        val repo = driveRepository ?: run {
-            _uiState.update { it.copy(errorMessage = "DriveRepository が初期化されていません") }
-            return
-        }
+    fun stashCurrentForLater(context: Context) {
         val targetYear = preferencesRepository?.targetYear?.value ?: LocalDate.now().year
         val state = _uiState.value
 
@@ -253,30 +267,91 @@ class ExtractionViewModel(
                 return@launch
             }
 
-            val result = repo.savePendingFile(
-                year = targetYear,
-                fileBytes = bytes,
-                mimeType = mimeType,
-                extension = ext
-            )
-            result.onSuccess { saved ->
+            try {
+                val store = PendingReceiptStore(context)
+                val savedLocal = store.saveLocalPending(
+                    year = targetYear,
+                    bytes = bytes,
+                    mimeType = mimeType,
+                    extension = ext
+                )
+
+                // 電波回復時に Drive の pending/ へも自動バックアップするよう WorkManager に登録
+                PendingBackupWorker.enqueue(context, savedLocal.localId)
+
                 _uiState.update {
                     it.copy(
                         isSaving = false,
+                        hasExtracted = false,
+                        selectedImageBitmap = null,
+                        selectedDocumentUri = null,
+                        selectedDocumentName = null,
+                        isPdfSelected = false,
                         errorMessage = null,
                         isErrorRetryable = false,
-                        saveSuccessMessage = "未解析フォルダ (pending/${saved.name}) に退避しました。あとから解析できます。"
+                        saveSuccessMessage = "アプリ内に退避しました（${savedLocal.displayName}）。オンライン時に Drive にも自動バックアップされます。"
                     )
                 }
-                refreshPendingDriveFiles()
-            }.onFailure { err ->
+                refreshPendingFiles(context)
+            } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
                         isSaving = false,
-                        errorMessage = "Drive への退避に失敗しました: ${err.localizedMessage}"
+                        errorMessage = "端末内への退避に失敗しました: ${e.localizedMessage}"
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * 端末内に退避した未解析ファイルを読み込んで Gemini で再解析する
+     */
+    fun parseLocalPendingItem(context: Context, item: LocalPendingItem) {
+        viewModelScope.launch {
+            val isPdf = item.mimeType.contains("pdf", ignoreCase = true) ||
+                item.extension.equals("pdf", ignoreCase = true)
+
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    selectedDocumentUri = null,
+                    selectedDocumentName = item.displayName,
+                    isPdfSelected = isPdf,
+                    selectedImageBitmap = null,
+                    errorMessage = null,
+                    isErrorRetryable = false,
+                    saveSuccessMessage = null,
+                    activeLocalPendingId = item.localId,
+                    activePendingDriveFileId = item.driveFileId,
+                    activePendingDriveMimeType = item.mimeType
+                )
+            }
+
+            val bytes = PendingReceiptStore(context).readBytes(item) ?: run {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "退避ファイルの読み込みに失敗しました。"
+                    )
+                }
+                return@launch
+            }
+
+            _uiState.update { it.copy(activePendingDriveBytes = bytes) }
+
+            val parseResult = if (isPdf) {
+                parser.parseDocument(bytes, "application/pdf")
+            } else {
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bitmap != null) {
+                    _uiState.update { it.copy(selectedImageBitmap = bitmap) }
+                    parser.parseReceiptImage(bitmap)
+                } else {
+                    parser.parseDocument(bytes, item.mimeType)
+                }
+            }
+            handleParseResult(parseResult)
         }
     }
 
@@ -404,7 +479,8 @@ class ExtractionViewModel(
                 fileBytes = fileBytes,
                 mimeType = mimeType,
                 extension = extension,
-                pendingDriveFileId = currentState.activePendingDriveFileId
+                pendingDriveFileId = currentState.activePendingDriveFileId,
+                localPendingId = currentState.activeLocalPendingId
             )
 
             WorkManager.getInstance(context)
@@ -435,13 +511,14 @@ class ExtractionViewModel(
                                 it.copy(
                                     isSaving = false,
                                     uploadStatusMessage = null,
+                                    activeLocalPendingId = null,
                                     activePendingDriveFileId = null,
                                     activePendingDriveBytes = null,
                                     activePendingDriveMimeType = null,
                                     saveSuccessMessage = "Google Drive の [$savedPath] および台帳に保存しました。"
                                 )
                             }
-                            refreshPendingDriveFiles()
+                            refreshPendingFiles(context)
                         }
                         WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
                             val errMsg = info.outputData.getString(UploadWorker.KEY_ERROR_MESSAGE)

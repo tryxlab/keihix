@@ -55,7 +55,7 @@ fun ExtractionScreen(
 
     LaunchedEffect(Unit) {
         viewModel.observePendingUploads(context)
-        viewModel.refreshPendingDriveFiles()
+        viewModel.refreshPendingFiles(context)
     }
 
     // 保存ボタン付近で操作していても状態変化にすぐ気づけるよう Snackbar を表示
@@ -253,8 +253,9 @@ fun ExtractionScreen(
                 Spacer(modifier = Modifier.height(10.dp))
             }
 
-            // Drive の pending/ フォルダにある未解析ファイル一覧
-            if (uiState.pendingDriveFiles.isNotEmpty()) {
+            // 端末内および Drive の pending/ にある未解析ファイル一覧
+            val totalPendingCount = uiState.localPendingItems.size + uiState.pendingDriveFiles.size
+            if (totalPendingCount > 0) {
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f)
@@ -268,13 +269,13 @@ fun ExtractionScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "未解析ファイル (Drive: ${uiState.pendingDriveFiles.size}件)",
+                                text = "あとで解析（退避済み: ${totalPendingCount}件）",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer
                             )
                             IconButton(
-                                onClick = { viewModel.refreshPendingDriveFiles() },
+                                onClick = { viewModel.refreshPendingFiles(context) },
                                 enabled = !uiState.isLoadingPendingFiles,
                                 modifier = Modifier.size(28.dp)
                             ) {
@@ -282,7 +283,8 @@ fun ExtractionScreen(
                             }
                         }
                         Spacer(modifier = Modifier.height(6.dp))
-                        uiState.pendingDriveFiles.take(3).forEach { pendingFile ->
+                        uiState.localPendingItems.take(4).forEach { localItem ->
+                            val statusBadge = if (localItem.driveFileId != null) "端末＋Drive保護済" else "端末保護済"
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -290,11 +292,46 @@ fun ExtractionScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text(
-                                    text = pendingFile.name,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.weight(1f)
-                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = localItem.displayName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = statusBadge,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
+                                    )
+                                }
+                                FilledTonalButton(
+                                    onClick = { viewModel.parseLocalPendingItem(context, localItem) },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text("解析する", fontSize = 11.sp)
+                                }
+                            }
+                        }
+                        uiState.pendingDriveFiles.take(2).forEach { pendingFile ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = pendingFile.name,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Text(
+                                        text = "Driveのみ",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
+                                    )
+                                }
                                 FilledTonalButton(
                                     onClick = { viewModel.parsePendingDriveFile(pendingFile) },
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
@@ -582,16 +619,16 @@ fun ExtractionScreen(
                                     Text("手入力で進む", fontSize = 12.sp)
                                 }
                             }
-                            if (uiState.activePendingDriveFileId == null) {
+                            if (uiState.activeLocalPendingId == null && uiState.activePendingDriveFileId == null) {
                                 Spacer(modifier = Modifier.height(6.dp))
                                 OutlinedButton(
-                                    onClick = { viewModel.saveCurrentToPendingDrive(context) },
+                                    onClick = { viewModel.stashCurrentForLater(context) },
                                     enabled = !uiState.isSaving,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Icon(Icons.Default.CloudQueue, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.Inventory2, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("先に Drive に退避（あとで解析）", fontSize = 12.sp)
+                                    Text("アプリ内に退避してあとで解析（圏外OK）", fontSize = 12.sp)
                                 }
                             }
                         }
