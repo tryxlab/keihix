@@ -15,7 +15,7 @@
 | **第3回** | **【AI抽出・BYOK編】**<br>Gemini 1.5 Flashで領収書＆売上明細を一撃パース！Structured OutputsとBYOKの安全な実装 | ・OCR＋正規表現の限界と小型マルチモーダルLLMの強み<br>・Structured Outputs (JSON Schema) 定義<br>・経費と収入（手数料・源泉徴収税含む）の統合スキーマ<br>・APIキーを安全に守る `EncryptedSharedPreferences` | 3章 / 4章 |
 | **第4回** | **【Google Drive直結編】**<br>サーバーレスの極致。Androidから `drive.file` スコープでGoogle Driveを自作DBにする技術 | ・ユーザーのDriveを無料ストレージ＆DBにする設計<br>・OAuth 2.0 `drive.file` スコープで安全にアクセス境界を作る<br>・フォルダ自動生成（`確定申告_{年}/receipts, incomes`）<br>・`transaction_log.csv` の追記・競合回避テクニック | 5章 |
 | **第5回** | **【Android UX編】**<br>日々の入力を「1タップ」にする。Jetpack Compose ＋ 共有インテントでブラウザやPDFから爆速連携 | ・なぜWebではなくAndroidネイティブなのか<br>・`ACTION_SEND` (Share Target) でメーラーやブラウザから即起動<br>・Jetpack Composeによる確認・手修正フォーム設計<br>・WorkManager によるオフライン対応＆非同期保存 | 6章 (6.1) |
-| **第6回** | **【確定申告実践＆公開編】**<br>蓄積データから確定申告書等作成コーナーへ転記！オープンソース公開とPlayストア申請のリアル | ・`transaction_log.csv` から国税庁コーナーへの転記フロー<br>・GitHub公開（ソースコード・規程テンプレ）<br>・Google Play審査（プライバシーポリシー等）と野良APK配布のハイブリッド戦略<br>・連載の総括と今後の展望 | 5.3 / 6.2 |
+| **第6回** | **【集計可視化＆確定申告実践・公開編】**<br>蓄積CSVから収支サマリ＆グラフ可視化！確定申告コーナーへの転記と公開のリアル | ・`transaction_log.csv` からの科目別・月別サマリ＆グラフ表示<br>・国税庁「確定申告書等作成コーナー」への転記フロー<br>・GitHub公開（ソースコード・規程テンプレ）<br>・Google Play審査と野良APK配布のハイブリッド戦略 | 5.3 / 6.2 |
 
 ---
 

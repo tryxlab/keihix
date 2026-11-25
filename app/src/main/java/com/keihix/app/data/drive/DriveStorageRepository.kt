@@ -1,13 +1,17 @@
 package com.keihix.app.data.drive
 
-import com.keihix.app.data.model.ParsedTransaction
-import com.keihix.app.data.model.TransactionType
+import android.content.Intent
+import com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException
 import com.google.api.client.http.ByteArrayContent
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.model.File
+import com.keihix.app.data.model.ParsedTransaction
+import com.keihix.app.data.model.TransactionType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 /**
  * Google Drive 上のファイル保存および台帳更新を管理するリポジトリインターフェース
@@ -21,6 +25,17 @@ interface DriveStorageRepository {
         mimeType: String,
         extension: String
     ): DriveSaveResult
+
+    suspend fun savePendingFile(
+        year: Int,
+        fileBytes: ByteArray,
+        mimeType: String,
+        extension: String
+    ): Result<PendingDriveFile>
+
+    suspend fun listPendingFiles(year: Int): Result<List<PendingDriveFile>>
+    suspend fun downloadFileBytes(fileId: String): Result<ByteArray>
+    suspend fun deletePendingFile(fileId: String): Result<Unit>
 }
 
 /**
@@ -28,7 +43,8 @@ interface DriveStorageRepository {
  */
 class GoogleDriveStorageRepository(
     private val driveServiceProvider: () -> Drive?,
-    private val csvRecorder: CsvTransactionRecorder = CsvTransactionRecorder()
+    private val csvRecorder: CsvTransactionRecorder = CsvTransactionRecorder(),
+    private val onConsentRequired: ((Intent) -> Unit)? = null
 ) : DriveStorageRepository {
 
     // メモリ内フォルダIDキャッシュ (年 -> 階層ID)
@@ -39,7 +55,9 @@ class GoogleDriveStorageRepository(
             IllegalStateException("Google Drive が未連携または初期化されていません。")
         )
 
-        folderCache[year]?.let { return@withContext Result.success(it) }
+        folderCache[year]?.let { cached ->
+            if (cached.pendingFolderId != null) return@withContext Result.success(cached)
+        }
 
         try {
             // 1. ルートフォルダ "確定申告_{year}" の探索・作成
@@ -52,7 +70,10 @@ class GoogleDriveStorageRepository(
             // 3. サブフォルダ "incomes" (収入) の探索・作成
             val incomesFolderId = findOrCreateFolder(drive, "incomes", parentId = rootFolderId)
 
-            // 4. "transaction_log.csv" の存在確認 (IDのみ取得)
+            // 4. サブフォルダ "pending" (未解析の一時退避) の探索・作成
+            val pendingFolderId = findOrCreateFolder(drive, "pending", parentId = rootFolderId)
+
+            // 5. "transaction_log.csv" の存在確認 (IDのみ取得)
             val csvFileId = findFileId(drive, "transaction_log.csv", parentId = rootFolderId)
 
             val hierarchy = DriveFolderHierarchy(
@@ -60,10 +81,14 @@ class GoogleDriveStorageRepository(
                 rootFolderId = rootFolderId,
                 receiptsFolderId = receiptsFolderId,
                 incomesFolderId = incomesFolderId,
+                pendingFolderId = pendingFolderId,
                 csvFileId = csvFileId
             )
             folderCache[year] = hierarchy
             Result.success(hierarchy)
+        } catch (e: UserRecoverableAuthIOException) {
+            onConsentRequired?.invoke(e.intent)
+            Result.failure(IllegalStateException("Google Drive へのアクセス許可が必要です。表示される同意画面で許可してください。", e))
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -94,27 +119,157 @@ class GoogleDriveStorageRepository(
             val fileName = transaction.toCompliantFileName() + cleanExt
             val relativeDrivePath = "$subDirName/$fileName"
 
-            // 3. 領収書 / 明細ファイルのアップロード
-            val fileMetadata = File().apply {
-                name = fileName
-                parents = listOf(targetFolderId)
-            }
+            // 3. 領収書 / 明細ファイルのアップロード（同名ファイルが既にある場合は上書き更新し重複を防ぐ）
             val mediaContent = ByteArrayContent(mimeType, fileBytes)
-            val uploadedFile = drive.files().create(fileMetadata, mediaContent)
-                .setFields("id, name")
-                .execute()
+            val existingFileId = findFileId(drive, fileName, parentId = targetFolderId)
+            val uploadedFileId = if (existingFileId != null) {
+                drive.files().update(existingFileId, null, mediaContent)
+                    .setFields("id, name")
+                    .execute()
+                    .id
+            } else {
+                val fileMetadata = File().apply {
+                    name = fileName
+                    parents = listOf(targetFolderId)
+                }
+                drive.files().create(fileMetadata, mediaContent)
+                    .setFields("id, name")
+                    .execute()
+                    .id
+            }
 
             // 4. transaction_log.csv の更新 (Read-Modify-Write)
             val csvUpdated = updateCsvLog(drive, hierarchy.rootFolderId, hierarchy.csvFileId, transaction, relativeDrivePath)
 
             DriveSaveResult.Success(
-                fileId = uploadedFile.id,
+                fileId = uploadedFileId,
                 relativeDrivePath = relativeDrivePath,
                 csvUpdated = csvUpdated,
                 transaction = transaction
             )
+        } catch (e: UserRecoverableAuthIOException) {
+            onConsentRequired?.invoke(e.intent)
+            DriveSaveResult.Error("Google Drive へのアクセス許可が必要です。同意画面で許可したあと再度お試しください。", e)
         } catch (e: Exception) {
-            DriveSaveResult.Error("保存中にエラーが発生しました: ${e.localizedMessage}", e)
+            val raw = "${e::class.simpleName}: ${e.localizedMessage.orEmpty()} ${e.cause?.localizedMessage.orEmpty()}"
+            val lower = raw.lowercase()
+            val message = if ("auth" in lower || "token" in lower || "consent" in lower || "401" in lower || "403" in lower) {
+                "Google Drive の認証に失敗しました（OAuth 同意またはアプリの署名 SHA-1 を確認し、設定画面で再連携してください）。"
+            } else {
+                "保存中にエラーが発生しました: ${e.localizedMessage}"
+            }
+            DriveSaveResult.Error(message, e)
+        }
+    }
+
+    override suspend fun savePendingFile(
+        year: Int,
+        fileBytes: ByteArray,
+        mimeType: String,
+        extension: String
+    ): Result<PendingDriveFile> = withContext(Dispatchers.IO) {
+        val drive = driveServiceProvider() ?: return@withContext Result.failure(
+            IllegalStateException("Google Drive にサインインしていません。設定画面から連携してください。")
+        )
+
+        try {
+            val hierarchy = ensureFolderHierarchy(year).getOrThrow()
+            val pendingFolderId = hierarchy.pendingFolderId
+                ?: findOrCreateFolder(drive, "pending", parentId = hierarchy.rootFolderId)
+
+            val cleanExt = if (extension.startsWith(".")) extension else ".$extension"
+            val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
+            val fileName = "pending_$timestamp$cleanExt"
+
+            val metadata = File().apply {
+                name = fileName
+                parents = listOf(pendingFolderId)
+            }
+            val media = ByteArrayContent(mimeType, fileBytes)
+            val created = drive.files().create(metadata, media)
+                .setFields("id, name, mimeType, createdTime")
+                .execute()
+
+            Result.success(
+                PendingDriveFile(
+                    fileId = created.id,
+                    name = created.name ?: fileName,
+                    mimeType = created.mimeType ?: mimeType,
+                    createdTimeMillis = created.createdTime?.value
+                )
+            )
+        } catch (e: UserRecoverableAuthIOException) {
+            onConsentRequired?.invoke(e.intent)
+            Result.failure(IllegalStateException("Google Drive へのアクセス許可が必要です。表示される同意画面で許可してください。", e))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun listPendingFiles(year: Int): Result<List<PendingDriveFile>> = withContext(Dispatchers.IO) {
+        val drive = driveServiceProvider() ?: return@withContext Result.failure(
+            IllegalStateException("Google Drive にサインインしていません。")
+        )
+
+        try {
+            val hierarchy = ensureFolderHierarchy(year).getOrThrow()
+            val pendingFolderId = hierarchy.pendingFolderId ?: return@withContext Result.success(emptyList())
+
+            val query = "'$pendingFolderId' in parents and trashed = false"
+            val result = drive.files().list()
+                .setQ(query)
+                .setSpaces("drive")
+                .setOrderBy("createdTime desc")
+                .setFields("files(id, name, mimeType, createdTime)")
+                .execute()
+
+            val items = result.files.orEmpty().map { file ->
+                PendingDriveFile(
+                    fileId = file.id,
+                    name = file.name ?: file.id,
+                    mimeType = file.mimeType ?: "application/octet-stream",
+                    createdTimeMillis = file.createdTime?.value
+                )
+            }
+            Result.success(items)
+        } catch (e: UserRecoverableAuthIOException) {
+            onConsentRequired?.invoke(e.intent)
+            Result.failure(IllegalStateException("Google Drive へのアクセス許可が必要です。表示される同意画面で許可してください。", e))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun downloadFileBytes(fileId: String): Result<ByteArray> = withContext(Dispatchers.IO) {
+        val drive = driveServiceProvider() ?: return@withContext Result.failure(
+            IllegalStateException("Google Drive にサインインしていません。")
+        )
+
+        try {
+            val out = ByteArrayOutputStream()
+            drive.files().get(fileId).executeMediaAndDownloadTo(out)
+            Result.success(out.toByteArray())
+        } catch (e: UserRecoverableAuthIOException) {
+            onConsentRequired?.invoke(e.intent)
+            Result.failure(IllegalStateException("Google Drive へのアクセス許可が必要です。表示される同意画面で許可してください。", e))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun deletePendingFile(fileId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val drive = driveServiceProvider() ?: return@withContext Result.failure(
+            IllegalStateException("Google Drive にサインインしていません。")
+        )
+
+        try {
+            drive.files().delete(fileId).execute()
+            Result.success(Unit)
+        } catch (e: UserRecoverableAuthIOException) {
+            onConsentRequired?.invoke(e.intent)
+            Result.failure(IllegalStateException("Google Drive へのアクセス許可が必要です。表示される同意画面で許可してください。", e))
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 

@@ -3,16 +3,26 @@ package com.keihix.app.ui.screens.extraction
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.keihix.app.data.ai.GeminiTransactionParser
 import com.keihix.app.data.ai.ParseResult
-import com.keihix.app.data.drive.DriveSaveResult
 import com.keihix.app.data.drive.DriveStorageRepository
+import com.keihix.app.data.drive.LocalPendingItem
+import com.keihix.app.data.drive.PendingBackupWorker
+import com.keihix.app.data.drive.PendingDriveFile
+import com.keihix.app.data.drive.PendingReceiptStore
+import com.keihix.app.data.drive.UploadWorker
 import com.keihix.app.data.model.ParsedTransaction
 import com.keihix.app.data.model.TransactionType
 import com.keihix.app.data.preference.UserPreferencesRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +30,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.time.LocalDate
 
 data class ExtractionUiState(
     val isLoading: Boolean = false,
@@ -27,8 +38,19 @@ data class ExtractionUiState(
     val selectedImageBitmap: Bitmap? = null,
     val selectedDocumentUri: Uri? = null,
     val selectedDocumentName: String? = null,
+    val isPdfSelected: Boolean = false,
     val errorMessage: String? = null,
+    val isErrorRetryable: Boolean = false,
     val rawJsonOutput: String? = null,
+    val pendingUploadCount: Int = 0,
+    val uploadStatusMessage: String? = null,
+    val localPendingItems: List<LocalPendingItem> = emptyList(),
+    val pendingDriveFiles: List<PendingDriveFile> = emptyList(),
+    val isLoadingPendingFiles: Boolean = false,
+    val activeLocalPendingId: String? = null,
+    val activePendingDriveFileId: String? = null,
+    val activePendingDriveBytes: ByteArray? = null,
+    val activePendingDriveMimeType: String? = null,
     // 編集可能なフィールド
     val type: TransactionType = TransactionType.EXPENSE,
     val date: String = "",
@@ -59,7 +81,7 @@ data class ExtractionUiState(
     fun toParsedTransaction(): ParsedTransaction {
         return ParsedTransaction(
             type = type,
-            date = date.ifBlank { "2026-01-01" },
+            date = date.ifBlank { LocalDate.now().toString() },
             amount = amount.toLongOrNull() ?: 0L,
             vendor = vendor.ifBlank { "未指定" },
             category = category.ifBlank { if (type == TransactionType.INCOME) "売上" else "消耗品費" },
@@ -81,6 +103,27 @@ class ExtractionViewModel(
     private val _uiState = MutableStateFlow(ExtractionUiState())
     val uiState: StateFlow<ExtractionUiState> = _uiState.asStateFlow()
 
+    private var uploadQueueObserverJob: Job? = null
+
+    /**
+     * WorkManager の待機中・実行中ジョブ数を監視する
+     */
+    fun observePendingUploads(context: Context) {
+        if (uploadQueueObserverJob != null) return
+        uploadQueueObserverJob = viewModelScope.launch {
+            WorkManager.getInstance(context)
+                .getWorkInfosByTagFlow(UploadWorker.WORK_TAG)
+                .collect { infos ->
+                    val activeCount = infos.count {
+                        it.state == WorkInfo.State.ENQUEUED ||
+                            it.state == WorkInfo.State.RUNNING ||
+                            it.state == WorkInfo.State.BLOCKED
+                    }
+                    _uiState.update { it.copy(pendingUploadCount = activeCount) }
+                }
+        }
+    }
+
     /**
      * ギャラリーやカメラ等から Bitmap が渡された時の解析
      */
@@ -92,8 +135,11 @@ class ExtractionViewModel(
                     selectedImageBitmap = bitmap,
                     selectedDocumentUri = null,
                     selectedDocumentName = null,
+                    isPdfSelected = false,
                     errorMessage = null,
-                    saveSuccessMessage = null
+                    isErrorRetryable = false,
+                    saveSuccessMessage = null,
+                    uploadStatusMessage = null
                 )
             }
 
@@ -109,37 +155,254 @@ class ExtractionViewModel(
         viewModelScope.launch {
             val contentResolver = context.contentResolver
             val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
-            val isPdf = mimeType.contains("pdf", ignoreCase = true)
+            val isPdf = mimeType.contains("pdf", ignoreCase = true) ||
+                uri.toString().endsWith(".pdf", ignoreCase = true)
+            val displayName = resolveDisplayName(context, uri)
 
             _uiState.update {
                 it.copy(
                     isLoading = true,
                     selectedDocumentUri = uri,
-                    selectedDocumentName = uri.lastPathSegment,
+                    selectedDocumentName = displayName,
+                    isPdfSelected = isPdf,
                     selectedImageBitmap = null,
                     errorMessage = null,
-                    saveSuccessMessage = null
+                    isErrorRetryable = false,
+                    saveSuccessMessage = null,
+                    uploadStatusMessage = null
                 )
             }
 
             val result = if (isPdf) {
                 val bytes = readBytesFromUri(context, uri)
                 if (bytes != null) {
-                    parser.parseDocument(bytes, mimeType)
+                    parser.parseDocument(bytes, "application/pdf")
                 } else {
-                    ParseResult.Error("PDFファイルの読み込みに失敗しました")
+                    ParseResult.Error("PDFファイルの読み込みに失敗しました", isRetryable = false)
                 }
             } else {
-                val bitmap = loadBitmapFromUri(context, uri)
+                val bitmap = loadOrientedBitmapFromUri(context, uri)
                 if (bitmap != null) {
                     _uiState.update { it.copy(selectedImageBitmap = bitmap) }
                     parser.parseReceiptImage(bitmap)
                 } else {
-                    ParseResult.Error("画像ファイルの読み込みに失敗しました")
+                    ParseResult.Error("画像ファイルの読み込みに失敗しました", isRetryable = false)
                 }
             }
 
             handleParseResult(result)
+        }
+    }
+
+    /**
+     * 最後に選択した画像/PDFで再解析を実行する（503等の一次エラー復帰用）
+     */
+    fun retryLastExtraction(context: Context) {
+        val state = _uiState.value
+        when {
+            state.selectedDocumentUri != null -> processUri(context, state.selectedDocumentUri)
+            state.selectedImageBitmap != null -> processBitmap(state.selectedImageBitmap)
+        }
+    }
+
+    /**
+     * AI解析エラー時やオフライン時に、手入力フォームを直接開く
+     */
+    fun openManualEntry() {
+        _uiState.update {
+            it.copy(
+                hasExtracted = true,
+                errorMessage = null,
+                isErrorRetryable = false,
+                date = it.date.ifBlank { LocalDate.now().toString() },
+                category = it.category.ifBlank {
+                    if (it.type == TransactionType.INCOME) "売上" else "消耗品費"
+                }
+            )
+        }
+    }
+
+    /**
+     * 端末内の退避ファイル一覧を即時読み込み、オンラインであれば Drive の pending/ も統合する
+     */
+    fun refreshPendingFiles(context: Context) {
+        val targetYear = preferencesRepository?.targetYear?.value ?: LocalDate.now().year
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingPendingFiles = true) }
+
+            val localStore = PendingReceiptStore(context)
+            val localItems = localStore.listLocalPending()
+            val syncedDriveIds = localItems.mapNotNull { it.driveFileId }.toSet()
+
+            // まずローカル分を即座にUIへ反映（完全オフラインでも即表示）
+            _uiState.update { it.copy(localPendingItems = localItems) }
+
+            // Drive 連携済み＆オンライン時のみリモート側（他端末退避分など）を取得
+            val remoteItems = driveRepository?.listPendingFiles(targetYear)
+                ?.getOrNull()
+                .orEmpty()
+                .filterNot { it.fileId in syncedDriveIds }
+
+            _uiState.update {
+                it.copy(
+                    isLoadingPendingFiles = false,
+                    pendingDriveFiles = remoteItems
+                )
+            }
+        }
+    }
+
+    /**
+     * 電波不良（オフライン）や Gemini 503 混雑時に、まず端末内の永続領域へ即座に退避し、
+     * バックグラウンドで Google Drive の pending/ フォルダにも自動バックアップ予約する。
+     */
+    fun stashCurrentForLater(context: Context) {
+        val targetYear = preferencesRepository?.targetYear?.value ?: LocalDate.now().year
+        val state = _uiState.value
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true, errorMessage = null, saveSuccessMessage = null) }
+            val (bytes, mimeType, ext) = extractCurrentFilePayload(context, state) ?: run {
+                _uiState.update { it.copy(isSaving = false, errorMessage = "退避するファイルが見つかりません。") }
+                return@launch
+            }
+
+            try {
+                val store = PendingReceiptStore(context)
+                val savedLocal = store.saveLocalPending(
+                    year = targetYear,
+                    bytes = bytes,
+                    mimeType = mimeType,
+                    extension = ext
+                )
+
+                // 電波回復時に Drive の pending/ へも自動バックアップするよう WorkManager に登録
+                PendingBackupWorker.enqueue(context, savedLocal.localId)
+
+                _uiState.update {
+                    it.copy(
+                        isSaving = false,
+                        hasExtracted = false,
+                        selectedImageBitmap = null,
+                        selectedDocumentUri = null,
+                        selectedDocumentName = null,
+                        isPdfSelected = false,
+                        errorMessage = null,
+                        isErrorRetryable = false,
+                        saveSuccessMessage = "アプリ内に退避しました（${savedLocal.displayName}）。オンライン時に Drive にも自動バックアップされます。"
+                    )
+                }
+                refreshPendingFiles(context)
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isSaving = false,
+                        errorMessage = "端末内への退避に失敗しました: ${e.localizedMessage}"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * 端末内に退避した未解析ファイルを読み込んで Gemini で再解析する
+     */
+    fun parseLocalPendingItem(context: Context, item: LocalPendingItem) {
+        viewModelScope.launch {
+            val isPdf = item.mimeType.contains("pdf", ignoreCase = true) ||
+                item.extension.equals("pdf", ignoreCase = true)
+
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    selectedDocumentUri = null,
+                    selectedDocumentName = item.displayName,
+                    isPdfSelected = isPdf,
+                    selectedImageBitmap = null,
+                    errorMessage = null,
+                    isErrorRetryable = false,
+                    saveSuccessMessage = null,
+                    activeLocalPendingId = item.localId,
+                    activePendingDriveFileId = item.driveFileId,
+                    activePendingDriveMimeType = item.mimeType
+                )
+            }
+
+            val bytes = PendingReceiptStore(context).readBytes(item) ?: run {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "退避ファイルの読み込みに失敗しました。"
+                    )
+                }
+                return@launch
+            }
+
+            _uiState.update { it.copy(activePendingDriveBytes = bytes) }
+
+            val parseResult = if (isPdf) {
+                parser.parseDocument(bytes, "application/pdf")
+            } else {
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bitmap != null) {
+                    _uiState.update { it.copy(selectedImageBitmap = bitmap) }
+                    parser.parseReceiptImage(bitmap)
+                } else {
+                    parser.parseDocument(bytes, item.mimeType)
+                }
+            }
+            handleParseResult(parseResult)
+        }
+    }
+
+    /**
+     * Drive の pending/ に退避したファイルをダウンロードして Gemini で再解析する
+     */
+    fun parsePendingDriveFile(file: PendingDriveFile) {
+        val repo = driveRepository ?: return
+        viewModelScope.launch {
+            val isPdf = file.mimeType.contains("pdf", ignoreCase = true) ||
+                file.name.endsWith(".pdf", ignoreCase = true)
+
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    selectedDocumentUri = null,
+                    selectedDocumentName = file.name,
+                    isPdfSelected = isPdf,
+                    selectedImageBitmap = null,
+                    errorMessage = null,
+                    isErrorRetryable = false,
+                    saveSuccessMessage = null,
+                    activePendingDriveFileId = file.fileId,
+                    activePendingDriveMimeType = file.mimeType
+                )
+            }
+
+            val bytes = repo.downloadFileBytes(file.fileId).getOrElse { err ->
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "未解析ファイルのダウンロードに失敗しました: ${err.localizedMessage}"
+                    )
+                }
+                return@launch
+            }
+
+            _uiState.update { it.copy(activePendingDriveBytes = bytes) }
+
+            val parseResult = if (isPdf) {
+                parser.parseDocument(bytes, "application/pdf")
+            } else {
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bitmap != null) {
+                    _uiState.update { it.copy(selectedImageBitmap = bitmap) }
+                    parser.parseReceiptImage(bitmap)
+                } else {
+                    parser.parseDocument(bytes, file.mimeType)
+                }
+            }
+            handleParseResult(parseResult)
         }
     }
 
@@ -152,6 +415,7 @@ class ExtractionViewModel(
                         isLoading = false,
                         hasExtracted = true,
                         errorMessage = null,
+                        isErrorRetryable = false,
                         type = data.type,
                         date = data.date,
                         amount = data.amount.toString(),
@@ -169,7 +433,9 @@ class ExtractionViewModel(
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        errorMessage = result.message
+                        errorMessage = result.message,
+                        isErrorRetryable = result.isRetryable,
+                        rawJsonOutput = result.rawOutput
                     )
                 }
             }
@@ -177,69 +443,139 @@ class ExtractionViewModel(
     }
 
     /**
-     * Google Drive へファイルおよび CSV ログを保存する
+     * WorkManager を介して Google Drive へ非同期保存する（オフライン時は自動待機・再試行）
      */
     fun saveToGoogleDrive(context: Context) {
-        val repo = driveRepository
-        if (repo == null) {
+        if (driveRepository == null) {
             _uiState.update { it.copy(errorMessage = "DriveRepository が初期化されていません") }
             return
         }
 
         val currentState = _uiState.value
         val transaction = currentState.toParsedTransaction()
-        val targetYear = preferencesRepository?.targetYear?.value ?: 2026
+        val targetYear = preferencesRepository?.targetYear?.value ?: LocalDate.now().year
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isSaving = true, errorMessage = null, saveSuccessMessage = null) }
+            _uiState.update {
+                it.copy(
+                    isSaving = true,
+                    errorMessage = null,
+                    isErrorRetryable = false,
+                    saveSuccessMessage = null,
+                    uploadStatusMessage = "保存データを準備中..."
+                )
+            }
 
-            // 保存対象のバイナリデータと拡張子を準備
-            val (fileBytes, mimeType, extension) = when {
-                currentState.selectedDocumentUri != null -> {
-                    val uri = currentState.selectedDocumentUri
-                    val bytes = readBytesFromUri(context, uri) ?: ByteArray(0)
-                    val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
-                    val ext = if (mime.contains("pdf")) "pdf" else "jpg"
-                    Triple(bytes, mime, ext)
-                }
-                currentState.selectedImageBitmap != null -> {
-                    val stream = ByteArrayOutputStream()
-                    currentState.selectedImageBitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
-                    Triple(stream.toByteArray(), "image/jpeg", "jpg")
-                }
-                else -> {
-                    // デモデータや手動入力の場合: プレースホルダーテキストをダミーファイルとして保存
+            val (fileBytes, mimeType, extension) = extractCurrentFilePayload(context, currentState)
+                ?: run {
                     val placeholderText = "KeihiX Receipt Placeholder: ${transaction.vendor} (${transaction.date})"
                     Triple(placeholderText.toByteArray(), "text/plain", "txt")
                 }
-            }
 
-            val result = repo.saveTransaction(
+            val workId = UploadWorker.enqueue(
+                context = context,
                 year = targetYear,
                 transaction = transaction,
                 fileBytes = fileBytes,
                 mimeType = mimeType,
-                extension = extension
+                extension = extension,
+                pendingDriveFileId = currentState.activePendingDriveFileId,
+                localPendingId = currentState.activeLocalPendingId
             )
 
-            when (result) {
-                is DriveSaveResult.Success -> {
-                    _uiState.update {
-                        it.copy(
-                            isSaving = false,
-                            saveSuccessMessage = "Google Drive の [${result.relativeDrivePath}] および台帳に保存しました。"
-                        )
+            WorkManager.getInstance(context)
+                .getWorkInfoByIdFlow(workId)
+                .collect { info ->
+                    if (info == null) return@collect
+                    when (info.state) {
+                        WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {
+                            _uiState.update {
+                                it.copy(
+                                    isSaving = false,
+                                    uploadStatusMessage = "送信キューに追加しました（オフライン時は接続後に自動保存されます）。"
+                                )
+                            }
+                        }
+                        WorkInfo.State.RUNNING -> {
+                            _uiState.update {
+                                it.copy(
+                                    isSaving = true,
+                                    uploadStatusMessage = "バックグラウンドで Google Drive に保存中..."
+                                )
+                            }
+                        }
+                        WorkInfo.State.SUCCEEDED -> {
+                            val savedPath = info.outputData.getString(UploadWorker.KEY_RESULT_PATH)
+                                ?: currentState.compliantFileNamePreview()
+                            _uiState.update {
+                                it.copy(
+                                    isSaving = false,
+                                    uploadStatusMessage = null,
+                                    activeLocalPendingId = null,
+                                    activePendingDriveFileId = null,
+                                    activePendingDriveBytes = null,
+                                    activePendingDriveMimeType = null,
+                                    saveSuccessMessage = "Google Drive の [$savedPath] および台帳に保存しました。"
+                                )
+                            }
+                            refreshPendingFiles(context)
+                        }
+                        WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
+                            val errMsg = info.outputData.getString(UploadWorker.KEY_ERROR_MESSAGE)
+                                ?: "Google Drive への保存に失敗しました。"
+                            _uiState.update {
+                                it.copy(
+                                    isSaving = false,
+                                    uploadStatusMessage = null,
+                                    errorMessage = errMsg,
+                                    isErrorRetryable = false
+                                )
+                            }
+                        }
                     }
                 }
-                is DriveSaveResult.Error -> {
-                    _uiState.update {
-                        it.copy(
-                            isSaving = false,
-                            errorMessage = result.message
-                        )
-                    }
-                }
-            }
+        }
+    }
+
+    private fun extractCurrentFilePayload(
+        context: Context,
+        state: ExtractionUiState
+    ): Triple<ByteArray, String, String>? = when {
+        state.activePendingDriveBytes != null -> {
+            val mime = state.activePendingDriveMimeType ?: "image/jpeg"
+            val ext = if (mime.contains("pdf", ignoreCase = true)) "pdf" else "jpg"
+            Triple(state.activePendingDriveBytes, mime, ext)
+        }
+        state.isPdfSelected && state.selectedDocumentUri != null -> {
+            val bytes = readBytesFromUri(context, state.selectedDocumentUri) ?: return null
+            Triple(bytes, "application/pdf", "pdf")
+        }
+        state.selectedImageBitmap != null -> {
+            val stream = ByteArrayOutputStream()
+            state.selectedImageBitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+            Triple(stream.toByteArray(), "image/jpeg", "jpg")
+        }
+        state.selectedDocumentUri != null -> {
+            val uri = state.selectedDocumentUri
+            val bytes = readBytesFromUri(context, uri) ?: return null
+            val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+            val ext = if (mime.contains("png")) "png" else "jpg"
+            Triple(bytes, mime, ext)
+        }
+        else -> null
+    }
+
+    private fun resolveDisplayName(context: Context, uri: Uri): String? {
+        return try {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0) cursor.getString(idx) else null
+                    } else null
+                } ?: uri.lastPathSegment
+        } catch (e: Exception) {
+            uri.lastPathSegment
         }
     }
 
@@ -252,10 +588,35 @@ class ExtractionViewModel(
         }
     }
 
-    private fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {
+    /**
+     * EXIF の向き情報を考慮して Bitmap を正立状態で読み込む
+     */
+    private fun loadOrientedBitmapFromUri(context: Context, uri: Uri): Bitmap? {
         return try {
-            val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
-            BitmapFactory.decodeStream(inputStream)
+            val rawBitmap = context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it)
+            } ?: return null
+
+            val orientation = context.contentResolver.openInputStream(uri)?.use { stream ->
+                ExifInterface(stream).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+            } ?: ExifInterface.ORIENTATION_NORMAL
+
+            val rotationDegrees = when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> 0f
+            }
+
+            if (rotationDegrees == 0f) {
+                rawBitmap
+            } else {
+                val matrix = Matrix().apply { postRotate(rotationDegrees) }
+                Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
+            }
         } catch (e: Exception) {
             null
         }
@@ -283,8 +644,9 @@ class ExtractionViewModel(
     fun onInvoiceNumberChange(newNumber: String) = _uiState.update { it.copy(invoiceNumber = newNumber) }
     fun onMemoChange(newMemo: String) = _uiState.update { it.copy(memo = newMemo) }
 
-    fun clearError() = _uiState.update { it.copy(errorMessage = null) }
+    fun clearError() = _uiState.update { it.copy(errorMessage = null, isErrorRetryable = false) }
     fun clearSuccessMessage() = _uiState.update { it.copy(saveSuccessMessage = null) }
+    fun clearUploadStatusMessage() = _uiState.update { it.copy(uploadStatusMessage = null) }
 
     /**
      * デモ・検証用: 経費サンプルの自動投入
@@ -294,6 +656,7 @@ class ExtractionViewModel(
             it.copy(
                 hasExtracted = true,
                 errorMessage = null,
+                isErrorRetryable = false,
                 saveSuccessMessage = null,
                 type = TransactionType.EXPENSE,
                 date = "2026-10-25",
@@ -317,6 +680,7 @@ class ExtractionViewModel(
             it.copy(
                 hasExtracted = true,
                 errorMessage = null,
+                isErrorRetryable = false,
                 saveSuccessMessage = null,
                 type = TransactionType.INCOME,
                 date = "2026-10-31",
