@@ -2,6 +2,7 @@ package com.keihix.app
 
 import android.app.Application
 import android.net.Uri
+import com.keihix.app.data.ai.GeminiTransactionAdvisor
 import com.keihix.app.data.ai.GeminiTransactionParser
 import com.keihix.app.data.drive.GoogleAuthManager
 import com.keihix.app.data.drive.GoogleDriveStorageRepository
@@ -22,6 +23,9 @@ class KeihiXApplication : Application() {
     lateinit var transactionParser: GeminiTransactionParser
         private set
 
+    lateinit var transactionAdvisor: GeminiTransactionAdvisor
+        private set
+
     lateinit var googleAuthManager: GoogleAuthManager
         private set
 
@@ -38,6 +42,7 @@ class KeihiXApplication : Application() {
         secureKeyManager = SecureKeyManager(this)
         preferencesRepository = UserPreferencesRepository(this)
         transactionParser = GeminiTransactionParser(secureKeyManager)
+        transactionAdvisor = GeminiTransactionAdvisor(secureKeyManager)
         googleAuthManager = GoogleAuthManager(this)
         driveStorageRepository = GoogleDriveStorageRepository(
             driveServiceProvider = { googleAuthManager.getDriveService() },

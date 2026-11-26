@@ -67,6 +67,19 @@ class CsvTransactionRecorder {
     }
 
     /**
+     * レコード一覧から UTF-8 BOM 付き CSV バイト列全体を再構築する
+     */
+    fun buildCsvBytes(records: List<RecordedTransaction>): ByteArray {
+        val sb = StringBuilder()
+        sb.append(ParsedTransaction.CSV_HEADER).append("\r\n")
+        records.forEach { rec ->
+            sb.append(rec.transaction.toCsvRow(rec.driveFilePath)).append("\r\n")
+        }
+        val textBytes = sb.toString().toByteArray(StandardCharsets.UTF_8)
+        return utf8Bom + textBytes
+    }
+
+    /**
      * バイト列の先頭が UTF-8 BOM か判定
      */
     fun hasUtf8Bom(bytes: ByteArray): Boolean {

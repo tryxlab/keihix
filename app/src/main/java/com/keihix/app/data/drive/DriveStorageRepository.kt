@@ -36,6 +36,8 @@ interface DriveStorageRepository {
     suspend fun listPendingFiles(year: Int): Result<List<PendingDriveFile>>
     suspend fun downloadFileBytes(fileId: String): Result<ByteArray>
     suspend fun deletePendingFile(fileId: String): Result<Unit>
+    suspend fun downloadTransactionCsv(year: Int): Result<ByteArray?>
+    suspend fun updateTransactionCsv(year: Int, csvBytes: ByteArray): Result<Unit>
 }
 
 /**
@@ -264,6 +266,58 @@ class GoogleDriveStorageRepository(
 
         try {
             drive.files().delete(fileId).execute()
+            Result.success(Unit)
+        } catch (e: UserRecoverableAuthIOException) {
+            onConsentRequired?.invoke(e.intent)
+            Result.failure(IllegalStateException("Google Drive へのアクセス許可が必要です。表示される同意画面で許可してください。", e))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun downloadTransactionCsv(year: Int): Result<ByteArray?> = withContext(Dispatchers.IO) {
+        val drive = driveServiceProvider() ?: return@withContext Result.failure(
+            IllegalStateException("Google Drive にサインインしていません。設定画面から連携してください。")
+        )
+
+        try {
+            val rootFolderId = folderCache[year]?.rootFolderId
+                ?: findFolderId(drive, "確定申告_$year", parentId = "root")
+                ?: return@withContext Result.success(null)
+
+            val csvFileId = findFileId(drive, "transaction_log.csv", parentId = rootFolderId)
+                ?: return@withContext Result.success(null)
+
+            val out = ByteArrayOutputStream()
+            drive.files().get(csvFileId).executeMediaAndDownloadTo(out)
+            Result.success(out.toByteArray())
+        } catch (e: UserRecoverableAuthIOException) {
+            onConsentRequired?.invoke(e.intent)
+            Result.failure(IllegalStateException("Google Drive へのアクセス許可が必要です。表示される同意画面で許可してください。", e))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun updateTransactionCsv(year: Int, csvBytes: ByteArray): Result<Unit> = withContext(Dispatchers.IO) {
+        val drive = driveServiceProvider() ?: return@withContext Result.failure(
+            IllegalStateException("Google Drive にサインインしていません。設定画面から連携してください。")
+        )
+
+        try {
+            val rootFolderId = folderCache[year]?.rootFolderId
+                ?: findFolderId(drive, "確定申告_$year", parentId = "root")
+                ?: return@withContext Result.failure(
+                    IllegalStateException("Google Drive 上に 確定申告_$year フォルダが見つかりません。")
+                )
+
+            val csvFileId = findFileId(drive, "transaction_log.csv", parentId = rootFolderId)
+                ?: return@withContext Result.failure(
+                    IllegalStateException("Google Drive 上に transaction_log.csv が見つかりません。")
+                )
+
+            val media = ByteArrayContent("text/csv; charset=UTF-8", csvBytes)
+            drive.files().update(csvFileId, null, media).execute()
             Result.success(Unit)
         } catch (e: UserRecoverableAuthIOException) {
             onConsentRequired?.invoke(e.intent)

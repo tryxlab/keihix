@@ -21,10 +21,13 @@ import com.keihix.app.ui.screens.extraction.ExtractionScreen
 import com.keihix.app.ui.screens.extraction.ExtractionViewModel
 import com.keihix.app.ui.screens.settings.SettingsScreen
 import com.keihix.app.ui.screens.settings.SettingsViewModel
+import com.keihix.app.ui.screens.summary.SummaryScreen
+import com.keihix.app.ui.screens.summary.SummaryViewModel
 
 sealed class Screen(val route: String) {
     object Disclaimer : Screen("disclaimer")
     object Home : Screen("home")
+    object Summary : Screen("summary")
     object Settings : Screen("settings")
 }
 
@@ -114,6 +117,29 @@ fun KeihiXNavHost(
                 viewModel = extractionViewModel,
                 isGeminiKeyConfigured = app.secureKeyManager.hasApiKey(),
                 isDriveConnected = isDriveConnected,
+                onNavigateToSummary = {
+                    navController.navigate(Screen.Summary.route)
+                },
+                onNavigateToSettings = {
+                    navController.navigate(Screen.Settings.route)
+                }
+            )
+        }
+
+        composable(Screen.Summary.route) {
+            val summaryViewModel = remember {
+                SummaryViewModel(
+                    driveRepository = app.driveStorageRepository,
+                    advisor = app.transactionAdvisor
+                )
+            }
+            SummaryScreen(
+                viewModel = summaryViewModel,
+                isGeminiKeyConfigured = app.secureKeyManager.hasApiKey(),
+                isDriveConnected = isDriveConnected,
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route)
                 }
