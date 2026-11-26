@@ -78,7 +78,7 @@ OSの **「共有メニュー（Share Target: `ACTION_SEND`）」** と連携す
 * **#3:** [【KeihiX開発日記#3】Geminiで領収書＆売上明細をパースする。Structured OutputsとBYOKの実装ログ（実測3.0秒）](.meta/articles/03_gemini_structured_extraction.md)
 * **#4:** [【KeihiX開発日記#4】Google Driveを自作DBにする。drive.fileスコープとCSV追記（Read-Modify-Write）の実装ログ](.meta/articles/04_google_drive_storage_backend.md)
 * **#5:** [【KeihiX開発日記#5】実機の503エラー・OAuth同意・重複保存の罠を越えて。共有インテントとWorkManager、「あとで解析」のUX実装ログ](.meta/articles/05_android_ux_share_workmanager.md)
-* **#6:** [【KeihiX開発日記#6】DriveのCSVからスマホ向け収支サマリ・AI質問・重複削除まで。OSS×買い切り配布を見据えた仕上げログ](.meta/articles/06_summary_export_ai_qa.md)
+* **#6:** [【KeihiX開発日記#6】DriveのCSVからスマホ向け収支サマリ・AI質問・重複削除まで。503対策と実機検証の実装ログ](.meta/articles/06_summary_export_ai_qa.md)
 
 ---
 
