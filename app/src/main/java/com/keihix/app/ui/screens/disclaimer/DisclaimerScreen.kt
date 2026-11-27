@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
@@ -124,6 +125,13 @@ fun DisclaimerScreen(
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                DisclaimerCard(
+                    icon = Icons.Default.Info,
+                    iconTint = PrimaryEmeraldLight,
+                    title = "ご利用に必要なもの（事前確認）",
+                    description = "・Google アカウント（必須）：証憑ファイルとCSV台帳の保存に Google Drive を使用します。\n・Gemini API キー（AI自動抽出・AI質問に必要）：Google AI Studio で無料取得できます（未設定でも手入力＋Drive保存・集計は利用可能です）。"
+                )
+
                 DisclaimerCard(
                     icon = Icons.Default.Warning,
                     iconTint = WarningAmber,

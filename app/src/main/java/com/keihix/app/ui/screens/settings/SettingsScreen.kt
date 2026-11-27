@@ -2,6 +2,8 @@ package com.keihix.app.ui.screens.settings
 
 import android.accounts.AccountManager
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -35,17 +37,22 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VpnKey
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -54,10 +61,14 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -90,6 +101,8 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+    var showApiKeyHelpDialog by remember { mutableStateOf(false) }
 
     // Android システムの「戻る」ジェスチャー / キーにも対応
     BackHandler {
@@ -292,6 +305,52 @@ fun SettingsScreen(
                                 Text("エラー: ${status.message}", color = ErrorRed, fontSize = 12.sp)
                             }
                             else -> Unit
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = DarkBorder)
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedButton(
+                            onClick = {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey"))
+                                context.startActivity(intent)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInNew,
+                                contentDescription = null,
+                                tint = SecondaryTeal,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Google AI Studio でキーを取得（無料）",
+                                color = SecondaryTeal,
+                                fontSize = 13.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        TextButton(
+                            onClick = { showApiKeyHelpDialog = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.HelpOutline,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "キーを入れられない・お困りの方はこちら",
+                                color = TextSecondary,
+                                fontSize = 12.sp
+                            )
                         }
                     }
                 }
@@ -512,7 +571,77 @@ fun SettingsScreen(
         if (uiState.showKiteiDialog) {
             KiteiPreviewDialog(onDismiss = { viewModel.hideKiteiDialog() })
         }
+
+        if (showApiKeyHelpDialog) {
+            ApiKeyHelpDialog(
+                onDismiss = { showApiKeyHelpDialog = false },
+                onOpenAiStudio = {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey"))
+                    context.startActivity(intent)
+                }
+            )
+        }
     }
+}
+
+@Composable
+private fun ApiKeyHelpDialog(
+    onDismiss: () -> Unit,
+    onOpenAiStudio: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DarkSurface,
+        shape = RoundedCornerShape(16.dp),
+        title = {
+            Text(
+                text = "Gemini API キー設定ガイド",
+                color = TextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "■ 最短取得手順（無料・約2分）\n1. 下のボタンから Google AI Studio を開く\n2. 個人の Google アカウントでログイン\n3.「Create API key」で生成された「AIzaSy...」をコピーして設定欄へ貼り付け",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    lineHeight = 18.sp
+                )
+                Text(
+                    text = "■ どうしても設定できない主な原因\n・会社や学校のアカウント（Google Workspace）は管理者制限で発行できないことがあります。個人の @gmail.com アカウントでお試しください。\n・コピー時に前後の空白が入るとエラーになります。\n・接続テストで 503 混雑エラーが出た場合は数分おいて再試行してください。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    lineHeight = 18.sp
+                )
+                Text(
+                    text = "■ キーなしでも使える機能\nGoogle Drive 連携だけ完了していれば、API キーが未設定でも「手入力で進む」から以下はすべて使えます。\n・証憑画像/PDFの電帳法ファイル名での Drive 保存\n・transaction_log.csv への台帳記録\n・収支サマリ、科目別集計、CSV 共有",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = PrimaryEmeraldLight,
+                    lineHeight = 18.sp
+                )
+                Text(
+                    text = "■ 返金について\nPlay ストアからご購入いただいた方で、環境に合わずどうしてもご利用いただけない場合は、Google Play の標準返金ポリシーに沿って購入履歴から返金申請が可能です。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted,
+                    lineHeight = 18.sp
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onOpenAiStudio) {
+                Text("AI Studio を開く", color = SecondaryTeal)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("閉じる", color = TextPrimary)
+            }
+        }
+    )
 }
 
 @Composable

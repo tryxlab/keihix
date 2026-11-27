@@ -44,6 +44,7 @@ fun ExtractionScreen(
     viewModel: ExtractionViewModel,
     isGeminiKeyConfigured: Boolean = true,
     isDriveConnected: Boolean = true,
+    onNavigateToSummary: () -> Unit = {},
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -156,6 +157,12 @@ fun ExtractionScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onNavigateToSummary) {
+                        Icon(
+                            imageVector = Icons.Default.BarChart,
+                            contentDescription = "収支サマリ・AI質問"
+                        )
+                    }
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(
                             imageVector = Icons.Default.Settings,
